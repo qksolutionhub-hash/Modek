@@ -8,11 +8,21 @@ export interface CashFlowEntry {
   amount: number;
 }
 
+export interface InvoiceItem {
+  description: string;
+  unit: string;
+  unitPrice: number;
+  quantity: number;
+  total: number;
+}
+
 export interface InvoiceEntry {
   id: string;
   date: string;
   customerName: string;
-  amount: number;
+  type: 'SALE' | 'RENT' | 'SERVICE';
+  items: InvoiceItem[];
+  amount: number; // Total amount
   status: 'PAID' | 'PENDING' | 'OVERDUE';
 }
 

@@ -9,7 +9,7 @@ interface Props {
   setCustomStart: (d: string) => void;
   customEnd: string;
   setCustomEnd: (d: string) => void;
-  hideAllOption?: boolean;
+  hideAllOption?: boolean; // Kept for prop compatibility but unused in logic
 }
 
 export const filterDataByDate = (data: any[], range: DateRangeOption, start: string, end: string, dateField = 'date') => {
@@ -40,7 +40,7 @@ export const filterDataByDate = (data: any[], range: DateRangeOption, start: str
 };
 
 const DateFilterBar: React.FC<Props> = ({ 
-  range, setRange, customStart, setCustomStart, customEnd, setCustomEnd, hideAllOption = false
+  range, setRange, customStart, setCustomStart, customEnd, setCustomEnd
 }) => {
   const options = ['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL', 'CUSTOM'] as const;
   
@@ -53,7 +53,6 @@ const DateFilterBar: React.FC<Props> = ({
       
       <div className="flex gap-1 bg-slate-100 p-1 rounded-md">
          {options.map((opt) => {
-           if (hideAllOption && opt === 'ALL') return null;
            return (
              <button
                key={opt}

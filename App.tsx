@@ -154,7 +154,7 @@ const App: React.FC = () => {
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
                 <Scissors className="text-white w-5 h-5" />
               </div>
-              <span className="font-bold text-lg text-slate-800 tracking-tight hidden md:block">Workshop<span className="text-indigo-600">Mgr</span></span>
+              <span className="font-bold text-lg text-slate-800 tracking-tight hidden md:block">Firm Management<span className="text-indigo-600"> by QK</span></span>
             </div>
 
             {/* Navigation */}
@@ -202,7 +202,6 @@ const App: React.FC = () => {
                    range={dashRange} setRange={setDashRange}
                    customStart={dashStart} setCustomStart={setDashStart}
                    customEnd={dashEnd} setCustomEnd={setDashEnd}
-                   hideAllOption={true}
                  />
               </div>
 

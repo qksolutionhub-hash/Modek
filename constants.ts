@@ -8,8 +8,28 @@ export const MOCK_CASH_FLOW: CashFlowEntry[] = [
 ];
 
 export const MOCK_INVOICES: InvoiceEntry[] = [
-  { id: 'INV-001', date: '2023-10-15', customerName: 'ABC Corp', amount: 8500, status: 'PAID' },
-  { id: 'INV-002', date: '2023-10-28', customerName: 'XYZ Ltd', amount: 12000, status: 'PENDING' },
+  { 
+    id: 'INV-001', 
+    date: '2023-10-15', 
+    customerName: 'ABC Corp', 
+    type: 'SALE',
+    items: [
+      { description: 'Steel Sheets Processing', unit: 'pcs', unitPrice: 8500, quantity: 1, total: 8500 }
+    ],
+    amount: 8500, 
+    status: 'PAID' 
+  },
+  { 
+    id: 'INV-002', 
+    date: '2023-10-28', 
+    customerName: 'XYZ Ltd', 
+    type: 'RENT',
+    items: [
+      { description: 'Workshop Space Rent - Oct', unit: 'month', unitPrice: 12000, quantity: 1, total: 12000 }
+    ],
+    amount: 12000, 
+    status: 'PENDING' 
+  },
 ];
 
 export const MOCK_SHEET_TRANSACTIONS: SheetTransaction[] = [

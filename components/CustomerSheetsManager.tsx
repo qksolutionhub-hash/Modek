@@ -168,7 +168,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
   const [historySort, setHistorySort] = useState<'DATE_DESC' | 'ITEM_ASC'>('ITEM_ASC'); 
   
   // Date Filter State
-  const [range, setRange] = useState<DateRangeOption>('TODAY'); // Default to Today as requested
+  const [range, setRange] = useState<DateRangeOption>('TODAY'); 
   const [start, setStart] = useState(new Date().toISOString().split('T')[0]);
   const [end, setEnd] = useState(new Date().toISOString().split('T')[0]);
 
@@ -620,7 +620,6 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                      range={range} setRange={setRange} 
                      customStart={start} setCustomStart={setStart} 
                      customEnd={end} setCustomEnd={setEnd}
-                     hideAllOption={true} 
                   />
                 </div>
                 
@@ -658,7 +657,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                                <div className="font-medium text-slate-700 text-xs">{t.sheetCode}</div>
                                <div className="text-[10px] text-slate-400">
                                  {t.details} 
-                               </div>
+                                </div>
                              </td>
                              <td className="p-3 text-right font-mono text-sm">{t.quantity}</td>
                              <td className="p-3 text-center">
