@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { generateVeoVideo, checkApiKey, promptApiKeySelection } from '../services/geminiService';
+import { generateVeoVideo } from '../services/geminiService';
 import { Video, Loader2, Upload, AlertCircle, Play } from 'lucide-react';
 
 const VeoStudio: React.FC = () => {
@@ -27,17 +27,9 @@ const VeoStudio: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setVideoUrl(null);
-    setStatus('Checking API Key...');
+    setStatus('Initializing...');
 
     try {
-      const hasKey = await checkApiKey();
-      if (!hasKey) {
-        promptApiKeySelection();
-        setIsLoading(false);
-        setStatus('');
-        return;
-      }
-
       const url = await generateVeoVideo(prompt, image, aspectRatio, setStatus);
       setVideoUrl(url);
       setStatus('Complete!');

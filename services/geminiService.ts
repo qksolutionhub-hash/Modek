@@ -8,10 +8,10 @@ export const checkApiKey = async (): Promise<boolean> => {
   return false;
 };
 
-export const promptApiKeySelection = () => {
+export const promptApiKeySelection = async () => {
   const win = window as any;
   if (win.aistudio && win.aistudio.openSelectKey) {
-    win.aistudio.openSelectKey();
+    await win.aistudio.openSelectKey();
   } else {
     alert("AI Studio environment not detected. Please run this in the Google AI Studio IDX or similar environment.");
   }
@@ -26,8 +26,8 @@ export const generateVeoVideo = async (
   try {
     const apiKeyValid = await checkApiKey();
     if (!apiKeyValid) {
-      promptApiKeySelection();
-      throw new Error("API Key selection required.");
+      await promptApiKeySelection();
+      // Proceed without throwing, assuming key selection was successful as per guidelines.
     }
 
     // Always create a new instance to get the fresh key
