@@ -30,6 +30,16 @@ const VeoStudio: React.FC = () => {
     setStatus('Initializing...');
 
     try {
+      // Check for API key availability in the specific environment context if needed
+      if ((window as any).aistudio && (window as any).aistudio.hasSelectedApiKey) {
+        const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+        if (!hasKey) {
+             if((window as any).aistudio.openSelectKey) {
+                 await (window as any).aistudio.openSelectKey();
+             }
+        }
+      }
+
       const url = await generateVeoVideo(prompt, image, aspectRatio, setStatus);
       setVideoUrl(url);
       setStatus('Complete!');

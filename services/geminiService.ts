@@ -1,22 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
 
-export const checkApiKey = async (): Promise<boolean> => {
-  const win = window as any;
-  if (win.aistudio && win.aistudio.hasSelectedApiKey) {
-    return await win.aistudio.hasSelectedApiKey();
-  }
-  return false;
-};
-
-export const promptApiKeySelection = async () => {
-  const win = window as any;
-  if (win.aistudio && win.aistudio.openSelectKey) {
-    await win.aistudio.openSelectKey();
-  } else {
-    alert("AI Studio environment not detected. Please run this in the Google AI Studio IDX or similar environment.");
-  }
-};
-
 export const generateVeoVideo = async (
   prompt: string,
   imageBase64: string | null,
@@ -24,14 +7,13 @@ export const generateVeoVideo = async (
   onStatusUpdate: (status: string) => void
 ): Promise<string> => {
   try {
-    const apiKeyValid = await checkApiKey();
-    if (!apiKeyValid) {
-      await promptApiKeySelection();
-      // Proceed without throwing, assuming key selection was successful as per guidelines.
+    // Basic API Key check
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API Key not found. Please ensure you have selected a valid API key.");
     }
 
-    // Always create a new instance to get the fresh key
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     
     onStatusUpdate("Initializing video generation...");
 

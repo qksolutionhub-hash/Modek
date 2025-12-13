@@ -6,6 +6,9 @@ export interface CashFlowEntry {
   description: string;
   type: 'INCOME' | 'EXPENSE';
   amount: number;
+  // New Fields
+  category?: string; // Main Account (Editable now)
+  subCategory?: string; // Sub Account / Party Name
 }
 
 export interface InvoiceItem {
@@ -20,10 +23,15 @@ export interface InvoiceEntry {
   id: string;
   date: string;
   customerName: string;
+  reference?: string; // New
   type: 'SALE' | 'RENT' | 'SERVICE';
   items: InvoiceItem[];
   amount: number; // Total amount
   status: 'PAID' | 'PENDING' | 'OVERDUE';
+  
+  // Company Info Override
+  companyName?: string;
+  companyAddress?: string;
 }
 
 export type SheetActionType = 'RECEIVE' | 'PROCESS' | 'RETURN' | 'WASTAGE';
@@ -40,6 +48,7 @@ export interface SheetTransaction {
   quantity: number;
   
   // New Fields
+  referredBy?: string; // New
   unit?: 'SHEET' | 'PCS';
   wastageStatus?: 'NO' | 'YES' | 'PARTIAL';
 

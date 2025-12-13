@@ -6,19 +6,20 @@ interface Props {
   onClose: () => void;
 }
 
-const COMPANY_INFO = {
-  name: "FIRM MANAGEMENT INC.",
-  address: "123 Industrial Estate, Sector 5",
-  city: "Tech City, TC 560001",
-  email: "accounts@firmmgmt.com",
-  phone: "+1 987 654 3210"
-};
-
 const InvoiceTemplate: React.FC<Props> = ({ invoice, onClose }) => {
   
   const handlePrint = () => {
     window.print();
   };
+
+  // Allow company override or default
+  const companyName = invoice.companyName || "FIRM MANAGEMENT INC.";
+  const companyAddress = invoice.companyAddress || "123 Industrial Estate, Sector 5, Tech City";
+
+  // Mock calculation of old balances for visualization
+  // In a real app, we would fetch previous unpaid invoices for this customer
+  const oldBalance = 0; 
+  const grandTotal = invoice.amount + oldBalance;
 
   return (
     <div className="fixed inset-0 bg-black/80 z-[100] flex justify-center overflow-auto p-4 md:p-8 backdrop-blur-sm">
@@ -43,16 +44,14 @@ const InvoiceTemplate: React.FC<Props> = ({ invoice, onClose }) => {
               <div>
                  <h1 className="text-4xl font-black text-slate-900 tracking-tight mb-2">INVOICE</h1>
                  <div className="text-sm font-medium text-slate-500">#{invoice.id}</div>
+                 {invoice.reference && <div className="text-sm text-slate-500 mt-1">Ref: {invoice.reference}</div>}
                  <div className="inline-block mt-2 px-2 py-0.5 rounded bg-slate-100 text-xs font-bold text-slate-600 uppercase">
                     {invoice.type}
                  </div>
               </div>
               <div className="text-right">
-                 <h2 className="font-bold text-xl text-slate-800 mb-1">{COMPANY_INFO.name}</h2>
-                 <p className="text-sm text-slate-600">{COMPANY_INFO.address}</p>
-                 <p className="text-sm text-slate-600">{COMPANY_INFO.city}</p>
-                 <p className="text-sm text-slate-600 mt-2">{COMPANY_INFO.email}</p>
-                 <p className="text-sm text-slate-600">{COMPANY_INFO.phone}</p>
+                 <h2 className="font-bold text-xl text-slate-800 mb-1">{companyName}</h2>
+                 <p className="text-sm text-slate-600 whitespace-pre-line">{companyAddress}</p>
               </div>
            </div>
 
@@ -83,17 +82,19 @@ const InvoiceTemplate: React.FC<Props> = ({ invoice, onClose }) => {
            <table className="w-full mb-8">
               <thead>
                  <tr className="bg-slate-50 border-y border-slate-200">
+                    <th className="py-3 px-4 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-16">Sr.</th>
                     <th className="py-3 px-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Description</th>
                     <th className="py-3 px-4 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-24">Unit</th>
-                    <th className="py-3 px-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider w-32">Unit Price</th>
+                    <th className="py-3 px-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider w-32">Price</th>
                     <th className="py-3 px-4 text-center text-xs font-bold text-slate-500 uppercase tracking-wider w-24">Qty</th>
-                    <th className="py-3 px-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider w-32">Amount</th>
+                    <th className="py-3 px-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider w-32">Total</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                  {invoice.items && invoice.items.length > 0 ? (
                     invoice.items.map((item, idx) => (
                       <tr key={idx}>
+                          <td className="py-4 px-4 text-center text-slate-600 font-mono text-sm">{idx + 1}</td>
                           <td className="py-4 px-4 font-medium text-slate-800">{item.description}</td>
                           <td className="py-4 px-4 text-center text-slate-600 text-sm">{item.unit}</td>
                           <td className="py-4 px-4 text-right text-slate-600 font-mono">${item.unitPrice.toLocaleString()}</td>
@@ -103,6 +104,7 @@ const InvoiceTemplate: React.FC<Props> = ({ invoice, onClose }) => {
                     ))
                  ) : (
                     <tr>
+                       <td className="py-4 px-4 text-center text-slate-600 font-mono text-sm">1</td>
                        <td className="py-4 px-4 font-bold text-slate-800">Consolidated Charges</td>
                        <td className="py-4 px-4 text-center text-slate-600">-</td>
                        <td className="py-4 px-4 text-right text-slate-600">-</td>
@@ -113,8 +115,16 @@ const InvoiceTemplate: React.FC<Props> = ({ invoice, onClose }) => {
               </tbody>
               <tfoot>
                  <tr className="border-t-2 border-slate-900">
-                    <td colSpan={4} className="pt-4 text-right font-black text-xl text-slate-900">Total</td>
-                    <td className="pt-4 text-right font-mono font-black text-xl text-indigo-600">${invoice.amount.toLocaleString()}</td>
+                    <td colSpan={5} className="pt-4 text-right font-bold text-slate-700">Current Total</td>
+                    <td className="pt-4 text-right font-mono font-bold text-slate-900">${invoice.amount.toLocaleString()}</td>
+                 </tr>
+                 <tr>
+                    <td colSpan={5} className="pt-2 text-right font-medium text-slate-500">Old Balance</td>
+                    <td className="pt-2 text-right font-mono font-medium text-slate-500">${oldBalance.toLocaleString()}</td>
+                 </tr>
+                 <tr>
+                    <td colSpan={5} className="pt-2 text-right font-black text-xl text-slate-900">Net Payable</td>
+                    <td className="pt-2 text-right font-mono font-black text-xl text-indigo-600">${grandTotal.toLocaleString()}</td>
                  </tr>
               </tfoot>
            </table>

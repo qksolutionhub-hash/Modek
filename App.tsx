@@ -4,41 +4,80 @@ import {
   FileText, 
   Scissors, 
   Users,
-  LogOut,
   Layers,
-  ArrowUpRight,
-  ArrowDownRight,
   Wallet,
   AlertCircle,
   PackagePlus,
   Truck,
   PlusCircle,
-  CreditCard
+  CreditCard,
+  Settings
 } from 'lucide-react';
 import { Role, TableName, DateRangeOption, SheetActionType } from './types';
 import { db } from './services/db';
 import { ViewContainer } from './components/TableViews';
 import CustomerSheetsManager from './components/CustomerSheetsManager';
+import DataManagement from './components/DataManagement';
 import DateFilterBar, { filterDataByDate } from './components/DateFilterBar';
 
 // Top Navigation Item Component
 const NavItem = ({ icon: Icon, label, active, onClick }: any) => (
   <button
     onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors rounded-lg ${
+    title={label}
+    className={`flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-colors rounded-lg ${
       active 
         ? 'bg-indigo-600 text-white' 
         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
     }`}
   >
-    <Icon className="w-4 h-4" />
-    {label}
+    <Icon className="w-5 h-5" />
+    <span className="hidden md:inline">{label}</span>
   </button>
 );
 
 const App: React.FC = () => {
-  const [role, setRole] = useState<Role>('admin');
-  const [activeTab, setActiveTab] = useState<TableName | 'Dashboard' | 'CustomerSheets'>('Dashboard');
+  // Load initial state from localStorage if available
+  const [role, setRole] = useState<Role>(() => {
+    return (localStorage.getItem('WM_ROLE') as Role) || 'admin';
+  });
+  
+  // Always start at Dashboard on refresh
+  const [activeTab, setActiveTab] = useState<TableName | 'Dashboard' | 'CustomerSheets' | 'Settings'>('Dashboard');
+  
+  // Handle Browser Back Button History
+  useEffect(() => {
+    // Replace the initial state so we have a base to go back to
+    const initialState = { tab: 'Dashboard' };
+    try {
+       window.history.replaceState(initialState, '');
+    } catch (e) {
+       console.warn("History API not available");
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.tab) {
+        setActiveTab(event.state.tab);
+      } else {
+        // Fallback for initial entry
+        setActiveTab('Dashboard');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateTo = (tab: any) => {
+    if (tab !== activeTab) {
+      try {
+        window.history.pushState({ tab }, '', `#${tab}`);
+      } catch (e) {
+        // Ignore history errors
+      }
+      setActiveTab(tab);
+    }
+  };
   
   // Dashboard Action State
   const [pendingSheetAction, setPendingSheetAction] = useState<SheetActionType | null>(null);
@@ -49,8 +88,8 @@ const App: React.FC = () => {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [sheetTransactions, setSheetTransactions] = useState<any[]>([]);
 
-  // Dashboard Filter State
-  const [dashRange, setDashRange] = useState<DateRangeOption>('TODAY');
+  // Dashboard Filter State - Default to MONTH
+  const [dashRange, setDashRange] = useState<DateRangeOption>('MONTH');
   const [dashStart, setDashStart] = useState(new Date().toISOString().split('T')[0]);
   const [dashEnd, setDashEnd] = useState(new Date().toISOString().split('T')[0]);
 
@@ -64,11 +103,33 @@ const App: React.FC = () => {
     loadData();
   }, []);
 
-  // Generic Add Handler
+  // Persist Navigation State (Role only)
+  useEffect(() => {
+    localStorage.setItem('WM_ROLE', role);
+  }, [role]);
+
+  // Generic Add Handler with Interception for Invoice->CashFlow
   const handleAdd = async (table: TableName, data: any) => {
     const newItem = await db.addEntry(table, data);
+    
     if (table === 'CashFlow') setCashFlow(prev => [newItem, ...prev]);
-    if (table === 'Invoices') setInvoices(prev => [newItem, ...prev]);
+    if (table === 'Invoices') {
+        setInvoices(prev => [newItem, ...prev]);
+        
+        // Auto-Entry to CashFlow if Invoice is Paid
+        if (data.status === 'PAID') {
+            const cfEntry = {
+                date: data.date,
+                description: `Invoice ${data.id} - ${data.customerName}`,
+                type: 'INCOME',
+                amount: data.amount,
+                category: 'SALE', // Main Account
+                subCategory: 'SALE' // Sub Account
+            };
+            const newCf = await db.addEntry('CashFlow', cfEntry);
+            setCashFlow(prev => [newCf, ...prev]);
+        }
+    }
     if (table === 'SheetTransactions') setSheetTransactions(prev => [newItem, ...prev]);
   };
 
@@ -80,15 +141,31 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDelete = async (table: TableName, id: string) => {
+    if(!window.confirm("Are you sure you want to delete this entry?")) return;
+    
+    await db.deleteEntry(table, id);
+    if (table === 'CashFlow') setCashFlow(prev => prev.filter(item => item.id !== id));
+    if (table === 'Invoices') setInvoices(prev => prev.filter(item => item.id !== id));
+    if (table === 'SheetTransactions') setSheetTransactions(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleDeleteCustomer = async (customerName: string) => {
+    if(!window.confirm(`Are you sure you want to delete ALL data for ${customerName}? This cannot be undone.`)) return;
+
+    await db.deleteCustomer(customerName);
+    setSheetTransactions(prev => prev.filter(t => t.customerName !== customerName));
+  };
+
   // Quick Action Handlers
   const triggerSheetAction = (action: SheetActionType) => {
-    setActiveTab('CustomerSheets');
+    navigateTo('CustomerSheets');
     setPendingSheetAction(action);
     setPendingAddAction(false);
   };
 
   const triggerAddAction = (tab: TableName) => {
-    setActiveTab(tab);
+    navigateTo(tab);
     setPendingAddAction(true);
     setPendingSheetAction(null);
   };
@@ -137,9 +214,10 @@ const App: React.FC = () => {
 
   const navItems = [
     { id: 'Dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin'] },
-    { id: 'CustomerSheets', label: 'Customer Sheets', icon: Layers, roles: ['admin', 'staff'] },
-    { id: 'CashFlow', label: 'Cash Flow', icon: FileText, roles: ['admin'] },
-    { id: 'Invoices', label: 'Invoices', icon: FileText, roles: ['admin'] },
+    { id: 'CustomerSheets', label: 'Sheets', icon: Layers, roles: ['admin', 'staff'] },
+    { id: 'CashFlow', label: 'Cash', icon: FileText, roles: ['admin'] },
+    { id: 'Invoices', label: 'Inv', icon: FileText, roles: ['admin'] },
+    { id: 'Settings', label: 'Data', icon: Settings, roles: ['admin'] },
   ];
 
   return (
@@ -147,44 +225,36 @@ const App: React.FC = () => {
       
       {/* Top Header / Navigation */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+         <div className="max-w-7xl mx-auto px-2 md:px-4 h-16 flex items-center justify-between">
             
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-                <Scissors className="text-white w-5 h-5" />
-              </div>
-              <span className="font-bold text-lg text-slate-800 tracking-tight hidden md:block">Firm Management<span className="text-indigo-600"> by QK</span></span>
-            </div>
+            {/* Logo / Title REMOVED as requested */}
+            <div className="hidden md:block w-8"></div> 
 
-            {/* Navigation */}
-            <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar mx-4">
+            {/* Navigation - Center Aligned mostly */}
+            <nav className="flex-1 flex items-center justify-center gap-2 overflow-x-auto no-scrollbar mask-gradient px-2">
                {navItems.filter(item => item.roles.includes(role)).map(item => (
                   <NavItem 
                     key={item.id}
                     icon={item.icon} 
                     label={item.label} 
                     active={activeTab === item.id}
-                    onClick={() => setActiveTab(item.id as any)}
+                    onClick={() => navigateTo(item.id)}
                   />
                ))}
             </nav>
 
             {/* User Controls */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 shrink-0 ml-2">
                <button 
                   onClick={() => {
-                    setRole(prev => prev === 'admin' ? 'staff' : 'admin');
-                    setActiveTab(role === 'admin' ? 'CustomerSheets' : 'Dashboard'); 
+                    const newRole = role === 'admin' ? 'staff' : 'admin';
+                    setRole(newRole);
+                    navigateTo(newRole === 'admin' ? 'CustomerSheets' : 'Dashboard'); 
                   }}
                   className="hidden md:flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-full transition-colors"
                >
                  <Users className="w-3 h-3" />
                  {role === 'admin' ? 'Admin' : 'Staff'}
-               </button>
-               <div className="h-6 w-[1px] bg-slate-300 hidden md:block"></div>
-               <button className="text-slate-500 hover:text-red-600 transition-colors">
-                  <LogOut className="w-5 h-5" />
                </button>
             </div>
          </div>
@@ -293,7 +363,7 @@ const App: React.FC = () => {
                            </div>
                         </div>
                         <button 
-                          onClick={() => setActiveTab('Invoices')} 
+                          onClick={() => navigateTo('Invoices')} 
                           className="w-full mt-2 py-2 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
                         >
                           View & Pay Invoices
@@ -310,6 +380,8 @@ const App: React.FC = () => {
               transactions={sheetTransactions} 
               onAddTransaction={(d) => handleAdd('SheetTransactions', d)}
               onUpdateTransaction={(id, d) => handleUpdate('SheetTransactions', id, d)}
+              onDeleteTransaction={(id) => handleDelete('SheetTransactions', id)}
+              onDeleteCustomer={handleDeleteCustomer}
               initialAction={pendingSheetAction}
             />
           )}
@@ -320,6 +392,7 @@ const App: React.FC = () => {
               tableName="CashFlow" 
               data={cashFlow} 
               onAdd={(d) => handleAdd('CashFlow', d)} 
+              onDelete={(id) => handleDelete('CashFlow', id)}
               canAdd={role === 'admin'} 
               initialOpenAdd={pendingAddAction}
             />
@@ -331,9 +404,14 @@ const App: React.FC = () => {
                tableName="Invoices" 
                data={invoices} 
                onAdd={(d) => handleAdd('Invoices', d)} 
+               onDelete={(id) => handleDelete('Invoices', id)}
                canAdd={role === 'admin'} 
                initialOpenAdd={pendingAddAction}
              />
+          )}
+
+          {activeTab === 'Settings' && (
+             <DataManagement />
           )}
         </div>
       </main>

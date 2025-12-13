@@ -12,6 +12,8 @@ import {
   Search, 
   ArrowUpDown, 
   Pencil,
+  Image as ImageIcon,
+  X
 } from 'lucide-react';
 import { SheetTransaction, SheetActionType, ProcessingStatus, StockCategory, DateRangeOption } from '../types';
 import ExportToolbar from './ExportToolbar';
@@ -21,6 +23,8 @@ interface Props {
   transactions: SheetTransaction[];
   onAddTransaction: (data: Partial<SheetTransaction>) => void;
   onUpdateTransaction?: (id: string, data: Partial<SheetTransaction>) => void;
+  onDeleteTransaction?: (id: string) => void;
+  onDeleteCustomer?: (customerName: string) => void;
   initialAction?: SheetActionType | null;
 }
 
@@ -28,9 +32,9 @@ interface Props {
 interface CustomerSummary {
   customerName: string;
   totalReceived: number;
-  totalReturned: number;
+  totalCut: number;
   balanceRaw: number;
-  balanceCut: number;
+  totalReturned: number;
   totalBalance: number;
 }
 
@@ -59,9 +63,9 @@ const calculateCustomerSummaries = (transactions: SheetTransaction[]): CustomerS
       map[t.customerName] = { 
         customerName: t.customerName, 
         totalReceived: 0, 
-        totalReturned: 0, 
+        totalCut: 0,
         balanceRaw: 0, 
-        balanceCut: 0, 
+        totalReturned: 0,
         totalBalance: 0 
       };
     }
@@ -73,25 +77,26 @@ const calculateCustomerSummaries = (transactions: SheetTransaction[]): CustomerS
       const source = t.sourceCategory || 'RAW';
       if (source === 'RAW') {
         c.balanceRaw -= t.quantity;
-        c.balanceCut += t.quantity;
+        c.totalCut += t.quantity; // Processed means Cut
       }
     } else if (t.action === 'RETURN') {
       c.totalReturned += t.quantity;
       if (t.stockCategory === 'CUT') {
-        c.balanceCut -= t.quantity;
+        c.totalCut -= t.quantity; // Remove from cut pool if returned
       } else {
-        c.balanceRaw -= t.quantity;
+        c.balanceRaw -= t.quantity; // Remove from raw pool
       }
     } else if (t.action === 'WASTAGE') {
-        // Wastage reduces balance but doesn't count towards 'Returned' in this summary view
         if (t.sourceCategory === 'CUT') {
-            c.balanceCut -= t.quantity;
+             c.totalCut -= t.quantity;
         } else {
-            c.balanceRaw -= t.quantity;
+             c.balanceRaw -= t.quantity;
         }
     }
     
-    c.totalBalance = c.balanceRaw + c.balanceCut;
+    // Balance Logic: Raw Balance is tracked directly. Cut items are considered in "Total Cut" until returned. 
+    // "Current Balance" usually means Total On Site (Raw + Cut).
+    c.totalBalance = c.balanceRaw + c.totalCut; // Simplifying: Cut Sheets are still "With us" until returned
   });
 
   return Object.values(map);
@@ -151,12 +156,23 @@ const getCustomerStock = (transactions: SheetTransaction[], customerName: string
   });
 };
 
-const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction, onUpdateTransaction, initialAction }) => {
+const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction, onUpdateTransaction, onDeleteTransaction, onDeleteCustomer, initialAction }) => {
   // Navigation State
-  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(() => {
+    return localStorage.getItem('WM_SELECTED_CUSTOMER') || null;
+  });
+
+  useEffect(() => {
+    if (selectedCustomer) {
+      localStorage.setItem('WM_SELECTED_CUSTOMER', selectedCustomer);
+    } else {
+      localStorage.removeItem('WM_SELECTED_CUSTOMER');
+    }
+  }, [selectedCustomer]);
+
   const [modalMode, setModalMode] = useState<SheetActionType | 'EDIT' | null>(null);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
   
-  // Handle Initial Action from Dashboard
   useEffect(() => {
     if (initialAction) {
        setModalMode(initialAction);
@@ -166,13 +182,10 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [historySort, setHistorySort] = useState<'DATE_DESC' | 'ITEM_ASC'>('ITEM_ASC'); 
-  
-  // Date Filter State
   const [range, setRange] = useState<DateRangeOption>('TODAY'); 
   const [start, setStart] = useState(new Date().toISOString().split('T')[0]);
   const [end, setEnd] = useState(new Date().toISOString().split('T')[0]);
 
-  // Edit State
   const [editingTransaction, setEditingTransaction] = useState<SheetTransaction | null>(null);
 
   // Derived Data
@@ -188,11 +201,10 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
     return items;
   }, [transactions, selectedCustomer, searchQuery]);
   
-  // History with Running Balance Calculation
   const currentCustomerHistoryWithBalance = useMemo(() => {
     if (!selectedCustomer) return [];
     
-    // 1. Sort chronological first for balance calc
+    // Chronological sort
     const chronological = transactions
       .filter(t => t.customerName === selectedCustomer)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || a.id.localeCompare(b.id));
@@ -229,10 +241,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
       };
     });
 
-    // 2. Filter Date Range
     const dateFiltered = filterDataByDate(withBalance, range, start, end);
-
-    // 3. Filter Search
     let filtered = dateFiltered;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -243,16 +252,13 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
       );
     }
 
-    // 4. Apply Display Sort
     if (historySort === 'DATE_DESC') {
       return filtered.reverse();
     } else {
-      // ITEM_ASC (A-Z)
       return filtered.sort((a, b) => a.sheetCode.localeCompare(b.sheetCode) || a.sheetType.localeCompare(b.sheetType));
     }
   }, [transactions, selectedCustomer, historySort, searchQuery, range, start, end]);
 
-  // Prepared data for Export
   const exportData = useMemo(() => {
     return currentCustomerHistoryWithBalance.map(({ id, photoUrl, customerName, ...rest }) => ({
       Date: rest.date,
@@ -262,6 +268,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
       Quantity: rest.quantity,
       Source: rest.sourceCategory || '-',
       Target: rest.stockCategory || '-',
+      Ref: rest.referredBy || '-',
       WastageStatus: rest.wastageStatus || '-',
       Details: rest.details || '',
       'Total Balance': rest.balanceAfter
@@ -271,14 +278,15 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
   // --- FORM STATES ---
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [photoUrl, setPhotoUrl] = useState<string>('');
-  const [details, setDetails] = useState(''); // Note field
-  const [formCustomer, setFormCustomer] = useState(''); // Local customer selection for modals
+  const [details, setDetails] = useState(''); 
+  const [formCustomer, setFormCustomer] = useState(''); 
+  const [referredBy, setReferredBy] = useState(''); // New State
   
-  // Receive (Multi-row)
+  // Receive
   const [receiveCustomer, setReceiveCustomer] = useState('');
   const [receiveRows, setReceiveRows] = useState([{ code: '', type: '', qty: 0 }]);
 
-  // Process (Multi-row)
+  // Process
   const [processRows, setProcessRows] = useState<{
     stockKey: string;
     qty: number;
@@ -286,19 +294,18 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
     source: StockCategory;
   }[]>([{ stockKey: '', qty: 0, status: 'SIZES_CONFIRMED', source: 'RAW' }]);
 
-  // Return/Gate Pass (NEW Map State)
-  // returnMap structure: key -> { qty, wastageStatus }
-  const [returnMap, setReturnMap] = useState<Record<string, { qty: number, wastageStatus: 'NO' | 'YES' | 'PARTIAL' }>>({});
+  // Return/Gate Pass
+  // Map Key: "stockKey-CATEGORY" (e.g. "A-100-Acrylic-RAW")
+  const [returnMap, setReturnMap] = useState<Record<string, number>>({});
   
   const [driverName, setDriverName] = useState('');
   const [vehicleNumber, setVehicleNumber] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Active Customer for Modal (either globally selected or locally selected)
+  // If customer is selected in view, use it. Otherwise use the form input.
   const activeModalCustomer = selectedCustomer || formCustomer;
   
-  // Derived stock for the active modal customer
   const activeModalStock = useMemo(() => {
       if (!activeModalCustomer) return [];
       return getCustomerStock(transactions, activeModalCustomer);
@@ -332,6 +339,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
     setReceiveRows([{ code: '', type: '', qty: 0 }]);
     setReceiveCustomer('');
     setFormCustomer('');
+    setReferredBy('');
     setProcessRows([{ stockKey: '', qty: 0, status: 'SIZES_CONFIRMED', source: 'RAW' }]);
     setReturnMap({});
     setDriverName('');
@@ -366,8 +374,9 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
             quantity: row.qty,
             action: 'RECEIVE',
             stockCategory: 'RAW',
+            referredBy, // Add ref
             photoUrl,
-            details // Note
+            details 
           });
         }
       });
@@ -394,41 +403,40 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
       });
     } 
     else if (modalMode === 'RETURN' && activeModalCustomer) {
-      Object.entries(returnMap).forEach(([key, values]) => {
-          const val = values as { qty: number, wastageStatus: 'NO' | 'YES' | 'PARTIAL' };
-          const stockItem = activeModalStock.find(s => s.key === key);
+      Object.entries(returnMap).forEach(([compositeKey, qty]) => {
+          // compositeKey is "stockKey|CATEGORY"
+          const [stockKey, category] = compositeKey.split('|');
           
-          if (!stockItem || val.qty <= 0) return;
+          if (!stockKey || !category || (qty as number) <= 0) return;
           
-          const action = val.wastageStatus === 'YES' ? 'WASTAGE' : 'RETURN';
+          const stockItem = activeModalStock.find(s => s.key === stockKey);
           
-          onAddTransaction({
-            date,
-            customerName: activeModalCustomer,
-            sheetCode: stockItem.code,
-            sheetType: stockItem.type,
-            quantity: val.qty,
-            action: action,
-            sourceCategory: 'RAW', // Defaulting for simplicity
-            stockCategory: action === 'WASTAGE' ? 'WASTAGE' : 'RAW', 
-            wastageStatus: val.wastageStatus,
-            driverName,
-            vehicleNumber,
-            photoUrl,
-            details // Note from Gate Pass
-          });
+          if (stockItem) {
+            onAddTransaction({
+                date,
+                customerName: activeModalCustomer,
+                sheetCode: stockItem.code,
+                sheetType: stockItem.type,
+                quantity: qty,
+                action: 'RETURN', // Always return, no wastage status
+                sourceCategory: 'RAW', // Not strictly used for RETURN logic but good for record
+                stockCategory: category as StockCategory, // 'RAW' or 'CUT'
+                driverName,
+                vehicleNumber,
+                photoUrl,
+                details 
+            });
+          }
       });
     }
     resetForms();
   };
 
-  const handleReturnMapChange = (key: string, field: 'qty' | 'wastageStatus', value: any) => {
+  const handleReturnMapChange = (stockKey: string, category: 'RAW' | 'CUT', value: number) => {
+      const compositeKey = `${stockKey}|${category}`;
       setReturnMap(prev => ({
           ...prev,
-          [key]: {
-              ...(prev[key] || { qty: 0, wastageStatus: 'NO' }),
-              [field]: value
-          }
+          [compositeKey]: value
       }));
   };
 
@@ -446,7 +454,6 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
     if (type === 'PROCESS') { const n = [...processRows]; (n[index] as any)[field] = value; setProcessRows(n); }
   };
 
-  // Pre-fill Logic
   const openAction = (mode: SheetActionType) => {
     setModalMode(mode);
   };
@@ -469,7 +476,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
               </button>
           </div>
           
-          <ExportToolbar data={customerSummaries} title="Customer Balances" />
+          <ExportToolbar data={customerSummaries} title="Customer Balances" dateRangeText={`${start} to ${end}`} />
 
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <table className="w-full text-sm text-left">
@@ -477,7 +484,9 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                 <tr>
                   <th className="p-4">Customer Name</th>
                   <th className="p-4 text-center">Total Received</th>
-                  <th className="p-4 text-center">Total Returned</th>
+                  <th className="p-4 text-center">Total Cut</th>
+                  <th className="p-4 text-center font-bold bg-slate-100">Raw Bal</th>
+                  <th className="p-4 text-center">Total Return</th>
                   <th className="p-4 text-right">Current Balance</th>
                   <th className="p-4"></th>
                 </tr>
@@ -486,19 +495,34 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                 {customerSummaries.map(c => (
                   <tr 
                     key={c.customerName} 
-                    onClick={() => setSelectedCustomer(c.customerName)}
-                    className="hover:bg-slate-50 cursor-pointer group transition-colors"
+                    className="hover:bg-slate-50 group transition-colors"
                   >
-                    <td className="p-4 font-bold text-slate-800">{c.customerName}</td>
+                    <td 
+                        className="p-4 font-bold text-slate-800 cursor-pointer" 
+                        onClick={() => setSelectedCustomer(c.customerName)}
+                    >
+                        {c.customerName}
+                    </td>
                     <td className="p-4 text-center text-blue-600 font-medium bg-blue-50/20">{c.totalReceived}</td>
+                    <td className="p-4 text-center text-amber-600 font-medium bg-amber-50/20">{c.totalCut}</td>
+                    <td className="p-4 text-center font-bold text-slate-800 bg-slate-100">{c.balanceRaw}</td>
                     <td className="p-4 text-center text-green-600">{c.totalReturned}</td>
                     <td className="p-4 text-right">
                        <span className={`px-3 py-1 rounded-full font-bold ${c.totalBalance > 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}>
                         {c.totalBalance}
                       </span>
                     </td>
-                    <td className="p-4 text-right text-slate-400">
-                      <ChevronRight className="w-5 h-5 inline-block group-hover:text-indigo-500" />
+                    <td className="p-4 text-right text-slate-400 flex justify-end gap-4 items-center">
+                       <button 
+                         onClick={() => onDeleteCustomer && onDeleteCustomer(c.customerName)}
+                         className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                         title="Delete Customer & All Data"
+                       >
+                         <Trash2 className="w-4 h-4" />
+                       </button>
+                       <div onClick={() => setSelectedCustomer(c.customerName)} className="cursor-pointer hover:text-indigo-500">
+                          <ChevronRight className="w-5 h-5" />
+                       </div>
                     </td>
                   </tr>
                 ))}
@@ -606,7 +630,6 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                 <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col gap-2">
                   <div className="flex justify-between items-center">
                      <span className="font-semibold text-slate-700">Transaction History</span>
-                     {/* Sorting Control */}
                      <button 
                        onClick={() => setHistorySort(prev => prev === 'DATE_DESC' ? 'ITEM_ASC' : 'DATE_DESC')}
                        className="flex items-center gap-1 text-xs font-medium text-slate-600 bg-white border px-2 py-1 rounded hover:bg-slate-50"
@@ -615,7 +638,6 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                         {historySort === 'DATE_DESC' ? 'Newest First' : 'A-Z (Item)'}
                      </button>
                   </div>
-                  {/* Integrated Date Filter */}
                   <DateFilterBar 
                      range={range} setRange={setRange} 
                      customStart={start} setCustomStart={setStart} 
@@ -624,7 +646,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                 </div>
                 
                 <div className="p-2 border-b border-slate-100 bg-white">
-                  <ExportToolbar data={exportData} title={`${selectedCustomer}_History`} />
+                  <ExportToolbar data={exportData} title={`${selectedCustomer}_History`} dateRangeText={`${start} to ${end}`} />
                 </div>
 
                 <div className="overflow-auto flex-1">
@@ -636,7 +658,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                          <th className="p-3">Item</th>
                          <th className="p-3 text-right">Qty</th>
                          <th className="p-3 text-center">Condition</th>
-                         <th className="p-3"></th>
+                         <th className="p-3 text-center">Actions</th>
                        </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
@@ -667,13 +689,29 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                                    <span className="text-[10px] text-slate-400">-</span>
                                 )}
                              </td>
-                             <td className="p-3 text-center">
+                             <td className="p-3 text-center flex items-center justify-center gap-2">
+                                {t.photoUrl && (
+                                   <button 
+                                      onClick={(e) => { e.stopPropagation(); setViewingImage(t.photoUrl || null); }}
+                                      className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-full transition-all"
+                                      title="View Image"
+                                   >
+                                      <ImageIcon className="w-3.5 h-3.5" />
+                                   </button>
+                                )}
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); openEdit(t); }}
                                     className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
                                     title="Edit Transaction"
                                 >
                                     <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onDeleteTransaction && onDeleteTransaction(t.id); }}
+                                    className="p-1.5 text-red-300 hover:text-red-600 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100"
+                                    title="Delete Transaction"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                              </td>
                           </tr>
@@ -688,6 +726,26 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
       )}
 
       {/* --- MODALS --- */}
+      
+      {/* IMAGE VIEWER MODAL */}
+      {viewingImage && (
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4" onClick={() => setViewingImage(null)}>
+           <div className="relative max-w-4xl max-h-[90vh] w-full flex flex-col items-center">
+              <button 
+                onClick={() => setViewingImage(null)}
+                className="absolute -top-10 right-0 text-white hover:text-gray-300"
+              >
+                <X className="w-8 h-8" />
+              </button>
+              <img 
+                src={viewingImage} 
+                alt="Transaction Evidence" 
+                className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl bg-white"
+                onClick={(e) => e.stopPropagation()} 
+              />
+           </div>
+        </div>
+      )}
       
       {/* 4. EDIT TRANSACTION */}
       {modalMode === 'EDIT' && editingTransaction && (
@@ -779,18 +837,30 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                        )}
                     </div>
                  </div>
+
+                 <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referred By</label>
+                    <input 
+                      value={referredBy}
+                      onChange={e => setReferredBy(e.target.value)}
+                      className="w-full border p-2 rounded"
+                      placeholder="e.g. Sales Agent Name"
+                    />
+                 </div>
                  
                  <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Items</label>
                     {receiveRows.map((row, idx) => (
-                      <div key={idx} className="flex gap-2 mb-2">
-                        <input placeholder="Code" value={row.code} onChange={e => handleRowChange('RECEIVE', idx, 'code', e.target.value)} className="flex-1 border p-2 rounded" required />
-                        <input placeholder="Type" value={row.type} onChange={e => handleRowChange('RECEIVE', idx, 'type', e.target.value)} className="flex-1 border p-2 rounded" required />
-                        <input type="number" placeholder="Qty" value={row.qty || ''} onChange={e => handleRowChange('RECEIVE', idx, 'qty', Number(e.target.value))} className="w-20 border p-2 rounded" required />
-                        {receiveRows.length > 1 && <button type="button" onClick={() => handleRemoveRow('RECEIVE', idx)}><Trash2 className="w-4 h-4 text-red-400" /></button>}
+                      <div key={idx} className="flex flex-col md:flex-row gap-2 mb-4 md:mb-2 border-b md:border-none pb-4 md:pb-0 border-slate-100">
+                        <input placeholder="Code" value={row.code} onChange={e => handleRowChange('RECEIVE', idx, 'code', e.target.value)} className="w-full md:flex-1 border p-2 rounded" required />
+                        <input placeholder="Type" value={row.type} onChange={e => handleRowChange('RECEIVE', idx, 'type', e.target.value)} className="w-full md:flex-1 border p-2 rounded" required />
+                        <div className="flex gap-2">
+                           <input type="number" placeholder="Qty" value={row.qty || ''} onChange={e => handleRowChange('RECEIVE', idx, 'qty', Number(e.target.value))} className="w-full md:w-24 border p-2 rounded" required />
+                           {receiveRows.length > 1 && <button type="button" onClick={() => handleRemoveRow('RECEIVE', idx)} className="p-2 text-red-400 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>}
+                        </div>
                       </div>
                     ))}
-                    <button type="button" onClick={() => handleAddRow('RECEIVE')} className="text-sm text-blue-600 flex items-center gap-1"><Plus className="w-4 h-4"/> Add Row</button>
+                    <button type="button" onClick={() => handleAddRow('RECEIVE')} className="text-sm text-blue-600 flex items-center gap-1 mt-2"><Plus className="w-4 h-4"/> Add Row</button>
                  </div>
                  
                  <div>
@@ -861,8 +931,8 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                                const item = activeModalStock.find(s => s.key === row.stockKey);
                                return (
                                  <div key={idx} className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                                   <div className="flex gap-3 items-end">
-                                     <div className="flex-1">
+                                   <div className="flex flex-col md:flex-row gap-3 items-end">
+                                     <div className="w-full md:flex-1">
                                        <label className="text-[10px] text-slate-400 uppercase mb-1 block">Sheet Selection</label>
                                        <select 
                                           required 
@@ -887,7 +957,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                                        </div>
                                      )}
 
-                                     <div className="w-32">
+                                     <div className="w-full md:w-32">
                                         <label className="text-[10px] text-slate-400 uppercase mb-1 block">Source</label>
                                         <select 
                                           value={row.source}
@@ -899,7 +969,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                                         </select>
                                      </div>
 
-                                     <div className="w-24">
+                                     <div className="w-full md:w-24">
                                        <label className="text-[10px] text-slate-400 uppercase mb-1 block">
                                           Qty (Max: {item ? (row.source === 'RAW' ? item.balanceRaw : item.balanceCut) : '-'})
                                        </label>
@@ -915,7 +985,7 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                                        />
                                      </div>
                                      
-                                     <div className="w-48">
+                                     <div className="w-full md:w-48">
                                         <label className="text-[10px] text-slate-400 uppercase mb-1 block">New Status</label>
                                         <select 
                                           value={row.status} 
@@ -972,7 +1042,6 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
               <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
                  <div className="flex-1 overflow-y-auto">
                     
-                    {/* Customer Selector if not already selected */}
                     {!selectedCustomer && (
                         <div className="p-4 bg-slate-50 border-b border-slate-100">
                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Select Customer</label>
@@ -997,52 +1066,56 @@ const CustomerSheetsManager: React.FC<Props> = ({ transactions, onAddTransaction
                              <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0 z-10">
                                 <tr>
                                    <th className="p-3">Item</th>
-                                   <th className="p-3 text-center bg-blue-50">Avail (Total)</th>
+                                   <th className="p-3">Source Type</th>
+                                   <th className="p-3 text-center bg-blue-50">Available</th>
                                    <th className="p-3 text-center w-24">Return Qty</th>
-                                   <th className="p-3 text-center w-40">Wastage Status?</th>
                                 </tr>
                              </thead>
                              <tbody className="divide-y divide-slate-100">
-                                {activeModalStock.filter(s => s.totalOnSite > 0).map(s => {
-                                   const changes = returnMap[s.key] || { qty: 0, wastageStatus: 'NO' };
+                                {activeModalStock.flatMap(s => {
+                                   const rows = [];
+                                   // Render Raw Row
+                                   if (s.balanceRaw > 0) {
+                                       rows.push({ ...s, displayType: 'RAW', avail: s.balanceRaw });
+                                   }
+                                   // Render Cut Row
+                                   if (s.balanceCut > 0) {
+                                       rows.push({ ...s, displayType: 'CUT', avail: s.balanceCut });
+                                   }
+                                   return rows;
+                                }).map((row, idx) => {
+                                   const key = `${row.key}|${row.displayType}`;
+                                   const currentQty = returnMap[key] || 0;
+                                   
                                    return (
-                                      <tr key={s.key} className="hover:bg-slate-50">
+                                      <tr key={idx} className="hover:bg-slate-50">
                                          <td className="p-3">
-                                            <div className="font-bold text-slate-700">{s.code}</div>
-                                            <div className="text-xs text-slate-400">{s.type}</div>
+                                            <div className="font-bold text-slate-700">{row.code}</div>
+                                            <div className="text-xs text-slate-400">{row.type}</div>
                                          </td>
-                                         <td className="p-3 text-center font-mono bg-blue-50/20">{s.totalOnSite}</td>
-                                         
+                                         <td className="p-3">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                                row.displayType === 'RAW' ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-800'
+                                            }`}>
+                                                {row.displayType === 'RAW' ? 'Raw Sheet' : 'Cut Piece'}
+                                            </span>
+                                         </td>
+                                         <td className="p-3 text-center font-mono bg-blue-50/20 text-slate-500 font-bold">{row.avail}</td>
                                          <td className="p-2">
                                             <input 
                                                type="number"
                                                min="0"
-                                               value={changes.qty || ''}
-                                               onChange={e => handleReturnMapChange(s.key, 'qty', Number(e.target.value))}
+                                               max={row.avail}
+                                               value={currentQty || ''}
+                                               onChange={e => handleReturnMapChange(row.key, row.displayType as any, Number(e.target.value))}
                                                placeholder="0"
                                                className="w-full border p-1.5 rounded text-center focus:ring-2 focus:ring-green-500 outline-none font-bold"
                                             />
                                          </td>
-
-                                         <td className="p-2">
-                                            <select 
-                                               value={changes.wastageStatus}
-                                               onChange={e => handleReturnMapChange(s.key, 'wastageStatus', e.target.value)}
-                                               className={`w-full border p-1.5 rounded text-xs font-medium ${
-                                                  changes.wastageStatus === 'NO' ? 'bg-white text-slate-700' : 
-                                                  changes.wastageStatus === 'YES' ? 'bg-red-50 text-red-600 border-red-200' :
-                                                  'bg-amber-50 text-amber-600 border-amber-200'
-                                               }`}
-                                            >
-                                               <option value="NO">Good Condition</option>
-                                               <option value="YES">Yes (Wastage)</option>
-                                               <option value="PARTIAL">Partially</option>
-                                            </select>
-                                         </td>
                                       </tr>
                                    );
                                 })}
-                                {activeModalStock.filter(s => s.totalOnSite > 0).length === 0 && (
+                                {activeModalStock.every(s => s.balanceRaw <= 0 && s.balanceCut <= 0) && (
                                    <tr><td colSpan={4} className="p-8 text-center text-slate-400">No active stock available for gate pass.</td></tr>
                                 )}
                              </tbody>
